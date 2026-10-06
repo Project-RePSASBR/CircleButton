@@ -3,8 +3,8 @@
 #include <string>
 #include <sys/process.h>
 
-#include "memory.hpp"
 #include "powerpc.hpp"
+#include "utils/memory.hpp"
 
 // Marker for definining executable sections of memory
 #define MARK_AS_EXECUTABLE __attribute__((section(".text")))
@@ -25,7 +25,7 @@ public:
 	Hook(uintptr_t hook_target, uintptr_t detour, PPCRegister register_index = POWERPC_REGISTERINDEX_R0);
 	Hook(Hook const&) = delete;
 	Hook(Hook&&) = delete;
-	Hook& operator=(Hook const &) = delete;
+	Hook& operator=(Hook const&) = delete;
 	Hook& operator=(Hook&&) = delete;
 	virtual ~Hook();
 
@@ -47,10 +47,9 @@ private:
 	* @param detour address of detour function
 	* @param target address to insert hook
 	* @param register_index register to use for jump
-	* @param trampoline_buffer memory block to write the trampoline bytes into
 	* @returns index into trampoline buffer where trampoline was written
 	*/
-	static uint8_t InitTrampoline(void *detour, void *target, PPCRegister register_index, uint8_t* trampoline_buffer);
+	static uint8_t InitTrampoline(void* detour, void* target, PPCRegister register_index);
 
 	/***
 	* Writes an unconditional branch to the destination address that will branch to the target address.
@@ -61,7 +60,7 @@ private:
 	* @param register_index Register to use when loading the destination address into the count register.
 	* @returns number of bytes needed to overwrite the instructions at the destination address to perform the desired branch
 	*/
-	static size_t Jump(void *destination, const void *branch_target, bool linked, bool preserve_register, PPCRegister register_index);
+	static size_t Jump(void* destination, const void* branch_target, bool linked, bool preserve_register, PPCRegister register_index);
 
 	/***
 	* Writes both conditional and unconditional branches using the count register to the destination address that will branch to the target address.
@@ -84,7 +83,7 @@ private:
 	* @param source address of the instruction that is being relocated
 	* @returns
 	*/
-	static size_t RelocateBranch(uint32_t *destination, uint32_t *source);
+	static size_t RelocateBranch(uint32_t* destination, uint32_t* source);
 
 	/***
 	* Copies an instruction to a new location ensuring PC relative offsets are fixed.
@@ -92,7 +91,7 @@ private:
 	* @param source address of the instruction that is being relocated
 	* @returns
 	*/
-	static size_t RelocateCode(uint32_t *destination, uint32_t *source);
+	static size_t RelocateCode(uint32_t* destination, uint32_t* source);
 
 	/***
 	* Get's size of method hook in bytes
@@ -101,22 +100,19 @@ private:
 	* @param preserve_register preserve the register clobbered after loading the branch address\
 	* @returns size of hook in bytes
 	*/
-	static size_t GetHookSize(const void *branch_target, bool linked, bool preserve_register);
+	static size_t GetHookSize(const void* branch_target, bool linked, bool preserve_register);
 
 protected:
-	const void*  hook_target;								// The address of the function we are hooking
-	void*		 detour;									// Address of hook detour function
+	const void* hook_target;								// The address of the function we are hooking
+	void* detour;									// Address of hook detour function
 	uint8_t		 stolen_instructions[MAX_STOLEN_BYTES];		// Overwritten/stolen instructions from the hook target
 	size_t		 size_stolen_bytes;							// Number of bytes overwritten/stolen at the hook target
 	PPCRegister  register_index;							// Index of register to use in unconditional jump at hook target
 	uint8_t		 id;										// Identifier for hook
 
-	// Per-instance executable trampoline buffer, allocated at runtime.
-	uint8_t* trampoline_buffer;
+	// Buffer to hold trampoline
+	MARK_AS_EXECUTABLE static uint8_t trampoline_buffer[MAX_HOOKS][TRAMPOLINE_BUFFER_SIZE];
 
 	// Number of trampolines currently in use
 	static uint8_t tramps;
-
-	// Allocate a page-aligned executable buffer for one trampoline instance.
-	static uint8_t* AllocateExecutableTrampolineBuffer(size_t size);
 };

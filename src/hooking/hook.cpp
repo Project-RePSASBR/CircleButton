@@ -4,21 +4,13 @@
 
 // Initialize trampoline buffer
 uint8_t Hook::tramps = 0;
-
-uint8_t* Hook::AllocateExecutableTrampolineBuffer(size_t size)
-{
-	// Use the project-available PS3 aligned allocator rather than a static
-	// MARK_AS_EXECUTABLE byte array. The allocator yields a runtime memory area
-	// that can be written with the hook trampoline bytes in-place.
-	return reinterpret_cast<uint8_t*>(memalign(0x100, size));
-}
+uint8_t Hook::trampoline_buffer[MAX_HOOKS][TRAMPOLINE_BUFFER_SIZE] = { 0 };
 
 Hook::Hook()
 {
 	this->hook_target = nullptr;
 	this->detour = nullptr;
 	this->register_index = POWERPC_REGISTERINDEX_R0;
-	this->trampoline_buffer = nullptr;
 
 	memset(this->stolen_instructions, 0, sizeof(this->stolen_instructions));
 }
@@ -28,9 +20,8 @@ Hook::Hook(uintptr_t hook_target, uintptr_t detour, PPCRegister register_index)
 	this->hook_target = reinterpret_cast<void*>(hook_target);
 	this->detour = reinterpret_cast<void*>(detour);
 	this->register_index = register_index;
-	this->trampoline_buffer = Hook::AllocateExecutableTrampolineBuffer(TRAMPOLINE_BUFFER_SIZE);
 
-	this->id = Hook::InitTrampoline((void *)detour, (void *)hook_target, register_index, this->trampoline_buffer);
+	this->id = Hook::InitTrampoline((void*)detour, (void*)hook_target, register_index);
 	memset(this->stolen_instructions, 0, sizeof(this->stolen_instructions));
 
 	if (this->id != 0xFF)
@@ -39,9 +30,6 @@ Hook::Hook(uintptr_t hook_target, uintptr_t detour, PPCRegister register_index)
 
 Hook::~Hook()
 {
-	if (this->trampoline_buffer)
-		free(this->trampoline_buffer);
-
 	UninstallHook();
 }
 
@@ -54,7 +42,7 @@ void Hook::InstallHook()
 	WriteProcessMemory(sys_process_getpid(), this->stolen_instructions, this->hook_target, hook_size);
 
 	// Our trampoline should already be initialized at this point, so write in our jump to it
-	this->Jump((void*)this->hook_target, this->trampoline_buffer, false, false, this->register_index);
+	this->Jump((void*)this->hook_target, &Hook::trampoline_buffer[this->id][0], false, false, this->register_index);
 }
 
 bool Hook::UninstallHook()
@@ -62,7 +50,7 @@ bool Hook::UninstallHook()
 	size_t hook_size = GetHookSize(this->detour, false, false);
 	if (this->hook_target && hook_size)
 	{
-		WriteProcessMemory(sys_process_getpid(), (void *)this->hook_target, this->stolen_instructions, hook_size);
+		WriteProcessMemory(sys_process_getpid(), (void*)this->hook_target, this->stolen_instructions, hook_size);
 		this->hook_target = nullptr;
 
 		return true;
@@ -71,13 +59,13 @@ bool Hook::UninstallHook()
 	return false;
 }
 
-uint8_t Hook::InitTrampoline(void *detour, void *target, PPCRegister register_index, uint8_t* trampoline_buffer)
+uint8_t Hook::InitTrampoline(void* detour, void* target, PPCRegister register_index)
 {
 	uint8_t id;
 	size_t reg;
 	uint32_t ret;
 	uint32_t inst;
-	uint32_t *instruction_addr;
+	uint32_t* instruction_addr;
 	size_t tramp_index = 0;
 	uint8_t ds = 0;
 
@@ -90,7 +78,7 @@ uint8_t Hook::InitTrampoline(void *detour, void *target, PPCRegister register_in
 
 		// Decrement stack pointer and store the old one on the stack
 		inst = POWERPC_STDU(POWERPC_REGISTERINDEX_SP, -0x100, POWERPC_REGISTERINDEX_SP);
-		WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], &inst, sizeof(inst));
+		WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], &inst, sizeof(inst));
 		tramp_index += sizeof(inst);
 		ds += sizeof(uint64_t);
 
@@ -101,18 +89,18 @@ uint8_t Hook::InitTrampoline(void *detour, void *target, PPCRegister register_in
 				continue;
 
 			inst = POWERPC_STD(reg, ds, POWERPC_REGISTERINDEX_SP);
-			WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], &inst, sizeof(inst));
+			WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], &inst, sizeof(inst));
 			tramp_index += sizeof(inst);
 			ds += sizeof(uint64_t);
 		}
 
 		// Branch and link to our detour
-		inst = POWERPC_STDU(POWERPC_REGISTERINDEX_SP, -0x60, POWERPC_REGISTERINDEX_SP);
-		WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], &inst, sizeof(inst));
+		inst = POWERPC_STDU(POWERPC_REGISTERINDEX_SP, -0x40, POWERPC_REGISTERINDEX_SP);
+		WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], &inst, sizeof(inst));
 		tramp_index += sizeof(inst);
-		tramp_index += Hook::Jump(&trampoline_buffer[tramp_index], detour, true, false, register_index);
-		inst = POWERPC_ADDI(POWERPC_REGISTERINDEX_SP, POWERPC_REGISTERINDEX_SP, 0x60);
-		WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], &inst, sizeof(inst));
+		tramp_index += Hook::Jump(&Hook::trampoline_buffer[id][tramp_index], detour, true, false, register_index);
+		inst = POWERPC_ADDI(POWERPC_REGISTERINDEX_SP, POWERPC_REGISTERINDEX_SP, 0x40);
+		WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], &inst, sizeof(inst));
 		tramp_index += sizeof(inst);
 
 		// Load all saved registers back off of the stack
@@ -123,25 +111,25 @@ uint8_t Hook::InitTrampoline(void *detour, void *target, PPCRegister register_in
 				continue;
 
 			inst = POWERPC_LD(reg, ds, POWERPC_REGISTERINDEX_SP);
-			WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], &inst, sizeof(inst));
+			WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], &inst, sizeof(inst));
 			tramp_index += sizeof(inst);
 			ds += sizeof(uint64_t);
 		}
 
 		// Restore our stack pointer
 		inst = POWERPC_ADDI(POWERPC_REGISTERINDEX_SP, POWERPC_REGISTERINDEX_SP, 0x100);
-		WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], &inst, sizeof(inst));
+		WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], &inst, sizeof(inst));
 		tramp_index += sizeof(inst);
 
 		// Copy stolen instructions from address we are hooking to our trampoline
 		size_t hook_size = GetHookSize(detour, false, false);
 		instruction_addr = reinterpret_cast<uint32_t*>((uint32_t)target);
-		WriteProcessMemory(sys_process_getpid(), &trampoline_buffer[tramp_index], instruction_addr, hook_size);
+		WriteProcessMemory(sys_process_getpid(), &Hook::trampoline_buffer[id][tramp_index], instruction_addr, hook_size);
 		tramp_index += hook_size;
 
 		// Jump back to our function
 		ret = (uint32_t)target + hook_size;
-		tramp_index += Hook::Jump(&trampoline_buffer[tramp_index], (void *)ret, true, false, register_index);
+		tramp_index += Hook::Jump(&Hook::trampoline_buffer[id][tramp_index], (void*)ret, true, false, register_index);
 
 		Hook::tramps++;
 
@@ -151,15 +139,15 @@ uint8_t Hook::InitTrampoline(void *detour, void *target, PPCRegister register_in
 	return 0xFF;
 }
 
-size_t Hook::Jump(void *destination, const void *branch_target, bool linked, bool preserve_register, PPCRegister register_index)
+size_t Hook::Jump(void* destination, const void* branch_target, bool linked, bool preserve_register, PPCRegister register_index)
 {
 	return JumpWithOptions(destination, branch_target, linked, preserve_register, POWERPC_BRANCH_OPTIONS_ALWAYS, 0, register_index, true);
 }
 
-size_t Hook::JumpWithOptions(void *destination, const void *branch_target, bool linked, bool preserve_register,
+size_t Hook::JumpWithOptions(void* destination, const void* branch_target, bool linked, bool preserve_register,
 	uint32_t branch_options, uint8_t condition_register_bit, PPCRegister register_index, bool write)
 {
-	uint32_t *branch_asm;
+	uint32_t* branch_asm;
 	size_t branch_asm_size;
 
 	uint32_t BranchFarAsm[] = {
@@ -187,7 +175,7 @@ size_t Hook::JumpWithOptions(void *destination, const void *branch_target, bool 
 	return branch_asm_size;
 }
 
-size_t Hook::RelocateBranch(uint32_t *destination, uint32_t *source)
+size_t Hook::RelocateBranch(uint32_t* destination, uint32_t* source)
 {
 	uint32_t instruction = *source;
 	uint32_t instruction_addr = (uint32_t)source;
@@ -246,12 +234,12 @@ size_t Hook::RelocateBranch(uint32_t *destination, uint32_t *source)
 		branch_offset |= ~MASK_N_BITS(branch_offset_bit_size + branch_offset_bit_base);
 	}
 
-	void *branch_address = reinterpret_cast<void *>(instruction_addr + branch_offset);
+	void* branch_address = reinterpret_cast<void*>(instruction_addr + branch_offset);
 
 	return JumpWithOptions(destination, branch_address, instruction & POWERPC_BRANCH_LINKED, true, branch_options, condition_register_bit, POWERPC_REGISTERINDEX_R0, true);
 }
 
-size_t Hook::RelocateCode(uint32_t *destination, uint32_t *source)
+size_t Hook::RelocateCode(uint32_t* destination, uint32_t* source)
 {
 	uint32_t instruction = *source;
 	switch (instruction & POWERPC_OPCODE_MASK)
@@ -265,7 +253,7 @@ size_t Hook::RelocateCode(uint32_t *destination, uint32_t *source)
 	}
 }
 
-size_t Hook::GetHookSize(const void *branch_target, bool linked, bool preserve_register)
+size_t Hook::GetHookSize(const void* branch_target, bool linked, bool preserve_register)
 {
 	return JumpWithOptions(nullptr, branch_target, linked, preserve_register, POWERPC_BRANCH_OPTIONS_ALWAYS, 0, POWERPC_REGISTERINDEX_R0, false);
 }

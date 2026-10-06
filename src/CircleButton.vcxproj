@@ -75,7 +75,7 @@
     <ClCompile Include="game\lan\lan.cpp" />
     <ClCompile Include="game\psasbr.cpp" />
     <ClCompile Include="hooking\hook.cpp" />
-    <ClCompile Include="hooking\memory.cpp" />
+    <ClCompile Include="utils\memory.cpp" />
     <ClCompile Include="prx.cpp" />
     <ClCompile Include="utils\file_system.cpp" />
     <ClCompile Include="utils\helpers.cpp" />
@@ -84,7 +84,7 @@
     <ClInclude Include="game\lan\lan.hpp" />
     <ClInclude Include="game\psasbr.hpp" />
     <ClInclude Include="hooking\hook.hpp" />
-    <ClInclude Include="hooking\memory.hpp" />
+    <ClInclude Include="utils\memory.hpp" />
     <ClInclude Include="hooking\powerpc.hpp" />
     <ClInclude Include="utils\exports.hpp" />
     <ClInclude Include="utils\file_system.hpp" />
