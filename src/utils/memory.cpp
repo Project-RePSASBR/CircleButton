@@ -8,7 +8,7 @@ uint32_t sys_dbg_write_process_memory(uint32_t pid, void *address, const void *d
 
 uint32_t sys_hen_write_process_memory(uint32_t pid, void *address, const void *data, size_t size)
 {
-	system_call_6(8, 0x7777, 0x32, (uint64_t)pid, (uint64_t)address, (uint64_t)size, (uint64_t)data);
+	system_call_6(8, 0x7777, 0x32, (uint64_t)pid, (uint64_t)address, (uint64_t)data, (uint64_t)size);
 	return_to_user_prog(uint32_t);
 }
 

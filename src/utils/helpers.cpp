@@ -1,3 +1,7 @@
+#include <string.h>
+#include <stdlib.h>
+#include <cell/cell_fs.h>
+
 #include "exports.hpp"
 
 void HexDump(const char *desc, const void *addr, const int len, int per_line)
@@ -78,4 +82,40 @@ void HexDump(const char *desc, const void *addr, const int len, int per_line)
 
 	free(buff);
 	buff = nullptr;
+}
+
+int CellFsRmRf(const char* path)
+{
+	int read_e;
+	CellFsDirent dir;
+	int ret = cellFsOpendir(path, &read_e);
+	if (ret != CELL_FS_SUCCEEDED)
+		return ret;
+	while (true)
+	{
+		ret = cellFsReaddir(read_e, &dir, nullptr);
+		if (ret != CELL_FS_SUCCEEDED || dir.d_namlen == 0)
+			break;
+		if (strcmp(dir.d_name, ".") == 0 || strcmp(dir.d_name, "..") == 0)
+			continue;
+		char full_path[1024];
+		snprintf(full_path, sizeof(full_path), "%s/%s", path, dir.d_name);
+		if (dir.d_type == CELL_FS_TYPE_DIRECTORY)
+		{
+			ret = CellFsRmRf(full_path);
+			if (ret != CELL_FS_SUCCEEDED)
+				return ret;
+		}
+		else
+		{
+			ret = cellFsUnlink(full_path);
+			if (ret != CELL_FS_SUCCEEDED)
+				return ret;
+		}
+	}
+	cellFsClosedir(read_e);
+	if (ret == 0)
+		ret = cellFsRmdir(path);
+
+	return ret;
 }
